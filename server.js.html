@@ -1,0 +1,233 @@
+const WebSocket = require("ws");
+
+const PORT = process.env.PORT || 3000;
+const wss = new WebSocket.Server({ port: PORT });
+
+const rooms = new Map();
+
+function makeRoom(code) {
+  return {
+    players: new Map(),
+    created: Date.now()
+  };
+}
+
+function send(ws, data) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+function broadcast(room, data) {
+  for (const player of room.players.values()) {
+    send(player.ws, data);
+  }
+}
+
+function snapshot(room) {
+  return [...room.players.values()].map(p => ({
+    id: p.id,
+    name: p.name,
+    team: p.team,
+    x: p.x,
+    z: p.z,
+    hp: p.hp,
+    maxHp: p.maxHp,
+    gold: p.gold,
+    level: p.level,
+    items: p.items
+  }));
+}
+
+function updateRoom(room) {
+  broadcast(room, {
+    type: "state",
+    players: snapshot(room)
+  });
+}
+
+wss.on("connection", ws => {
+  let me = null;
+  let room = null;
+
+  ws.on("message", raw => {
+    let msg;
+
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    // JOIN ROOM
+    if (msg.type === "join") {
+      const code = String(msg.room || "VYRA1").toUpperCase();
+
+      if (!rooms.has(code)) {
+        rooms.set(code, makeRoom(code));
+      }
+
+      room = rooms.get(code);
+
+      if (room.players.size >= 10) {
+        send(ws, {
+          type: "error",
+          message: "Room is full."
+        });
+        return;
+      }
+
+      const blue = [...room.players.values()]
+        .filter(p => p.team === "blue").length;
+
+      const red = [...room.players.values()]
+        .filter(p => p.team === "red").length;
+
+      const team = blue <= red ? "blue" : "red";
+
+      me = {
+        id: Math.random().toString(36).slice(2),
+        name: String(msg.name || "Player").slice(0, 16),
+        team,
+        x: team === "blue" ? -25 : 25,
+        z: 0,
+        hp: 1000,
+        maxHp: 1000,
+        gold: 1000,
+        level: 1,
+        items: [],
+        ws
+      };
+
+      room.players.set(me.id, me);
+
+      send(ws, {
+        type: "joined",
+        id: me.id,
+        team: me.team,
+        room: code
+      });
+
+      updateRoom(room);
+      return;
+    }
+
+    if (!me || !room) return;
+
+    // MOVEMENT
+    if (msg.type === "move") {
+      const x = Number(msg.x);
+      const z = Number(msg.z);
+
+      if (Number.isFinite(x) && Number.isFinite(z)) {
+        me.x = Math.max(-55, Math.min(55, x));
+        me.z = Math.max(-35, Math.min(35, z));
+        updateRoom(room);
+      }
+    }
+
+    // ATTACK
+    if (msg.type === "attack") {
+      const target = room.players.get(String(msg.target));
+
+      if (!target) return;
+      if (target.team === me.team) return;
+
+      const dx = target.x - me.x;
+      const dz = target.z - me.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+
+      if (distance <= 5) {
+        target.hp -= 100;
+
+        if (target.hp <= 0) {
+          target.hp = 0;
+
+          me.gold += 300;
+          me.level += 1;
+
+          setTimeout(() => {
+            if (!room || !room.players.has(target.id)) return;
+
+            target.hp = target.maxHp;
+            target.x = target.team === "blue" ? -25 : 25;
+            target.z = 0;
+          }, 3000);
+        }
+
+        updateRoom(room);
+      }
+    }
+
+    // BUY ITEM
+    if (msg.type === "buy") {
+      const item = {
+        id: String(msg.id),
+        name: String(msg.name),
+        price: Number(msg.price),
+        damage: Number(msg.damage || 0),
+        defense: Number(msg.defense || 0),
+        speed: Number(msg.speed || 0)
+      };
+
+      if (!Number.isFinite(item.price)) return;
+
+      if (me.gold >= item.price) {
+        me.gold -= item.price;
+
+        // Rebuying is allowed.
+        me.items.push(item);
+
+        // Item stats
+        me.maxHp += item.defense * 5;
+        me.hp += item.defense * 5;
+
+        updateRoom(room);
+      }
+    }
+
+    // SELL ITEM
+    if (msg.type === "sell") {
+      const index = Number(msg.index);
+
+      if (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < me.items.length
+      ) {
+        const item = me.items[index];
+
+        me.gold += Math.floor(item.price * 0.7);
+
+        me.items.splice(index, 1);
+
+        updateRoom(room);
+      }
+    }
+
+    // CHAT
+    if (msg.type === "chat") {
+      broadcast(room, {
+        type: "chat",
+        name: me.name,
+        message: String(msg.message || "").slice(0, 120)
+      });
+    }
+  });
+
+  ws.on("close", () => {
+    if (!me || !room) return;
+
+    room.players.delete(me.id);
+
+    updateRoom(room);
+
+    if (room.players.size === 0) {
+      rooms.delete(
+        [...rooms.entries()].find(([_, r]) => r === room)?.[0]
+      );
+    }
+  });
+});
+
+console.log(`VYRA multiplayer server running on port ${PORT}`);
