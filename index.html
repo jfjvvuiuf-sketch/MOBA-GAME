@@ -1,233 +1,774 @@
-const WebSocket = require("ws");
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VYRA Legends Arena</title>
 
-const PORT = process.env.PORT || 3000;
-const wss = new WebSocket.Server({ port: PORT });
+<style>
+*{
+  box-sizing:border-box;
+  user-select:none;
+}
 
-const rooms = new Map();
+body{
+  margin:0;
+  overflow:hidden;
+  background:#050812;
+  font-family:Arial,sans-serif;
+  color:white;
+}
 
-function makeRoom(code) {
-  return {
-    players: new Map(),
-    created: Date.now()
+#game{
+  position:fixed;
+  inset:0;
+}
+
+#top{
+  position:fixed;
+  top:12px;
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(0,0,0,.65);
+  padding:10px 20px;
+  border-radius:20px;
+  z-index:5;
+  text-align:center;
+}
+
+#stats{
+  font-size:14px;
+}
+
+#shop{
+  position:fixed;
+  right:15px;
+  top:70px;
+  width:240px;
+  background:rgba(5,8,18,.9);
+  border:1px solid #4b6cff;
+  border-radius:15px;
+  padding:12px;
+  z-index:10;
+}
+
+.item{
+  background:#111a2e;
+  border:1px solid #34456f;
+  border-radius:10px;
+  margin:7px 0;
+  padding:9px;
+  cursor:pointer;
+}
+
+.item:hover{
+  background:#1b2b4d;
+}
+
+#inventory{
+  position:fixed;
+  left:50%;
+  bottom:20px;
+  transform:translateX(-50%);
+  display:flex;
+  gap:7px;
+  z-index:10;
+}
+
+.slot{
+  width:58px;
+  height:58px;
+  background:#121a2a;
+  border:2px solid #465b91;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:10px;
+  text-align:center;
+}
+
+#controls{
+  position:fixed;
+  left:25px;
+  bottom:25px;
+  z-index:10;
+}
+
+#joystick{
+  width:130px;
+  height:130px;
+  border-radius:50%;
+  background:rgba(255,255,255,.08);
+  border:2px solid rgba(255,255,255,.2);
+  position:relative;
+}
+
+#stick{
+  width:55px;
+  height:55px;
+  border-radius:50%;
+  background:rgba(100,160,255,.7);
+  position:absolute;
+  left:37px;
+  top:37px;
+}
+
+#buttons{
+  position:fixed;
+  right:30px;
+  bottom:30px;
+  display:flex;
+  gap:12px;
+  z-index:10;
+}
+
+button{
+  width:70px;
+  height:70px;
+  border-radius:50%;
+  border:2px solid #7895ff;
+  background:#16264d;
+  color:white;
+  font-weight:bold;
+  cursor:pointer;
+}
+
+#join{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:
+    radial-gradient(circle at center,#182b58,#03050b 70%);
+  z-index:100;
+}
+
+.panel{
+  width:min(90%,400px);
+  background:rgba(8,13,27,.95);
+  border:1px solid #536dff;
+  border-radius:20px;
+  padding:25px;
+  text-align:center;
+  box-shadow:0 0 50px #101f70;
+}
+
+input{
+  width:100%;
+  padding:14px;
+  margin:7px 0;
+  border-radius:10px;
+  border:1px solid #415486;
+  background:#0d1425;
+  color:white;
+}
+
+#joinBtn{
+  width:100%;
+  height:48px;
+  border-radius:12px;
+  margin-top:10px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="join">
+  <div class="panel">
+    <h1>⚔️ VYRA</h1>
+    <p>LEGENDS ARENA</p>
+
+    <input id="name" placeholder="Hero name">
+    <input id="room" placeholder="Room code" value="VYRA1">
+
+    <button id="joinBtn">JOIN 5v5</button>
+
+    <p id="status"></p>
+  </div>
+</div>
+
+<div id="game"></div>
+
+<div id="top">
+  <b>VYRA LEGENDS ARENA</b>
+  <div id="stats">
+    Gold: 0 | Level: 1 | Players: 0/10
+  </div>
+</div>
+
+<div id="shop">
+  <b>🛒 ITEM SHOP</b>
+
+  <div class="item" data-id="blade"
+       data-name="VYRA BLADE"
+       data-price="300"
+       data-damage="25">
+    ⚔️ VYRA BLADE<br>
+    +25 Attack<br>
+    300 Gold
+  </div>
+
+  <div class="item" data-id="armor"
+       data-name="AETHER ARMOR"
+       data-price="400"
+       data-defense="30">
+    🛡️ AETHER ARMOR<br>
+    +30 Defense<br>
+    400 Gold
+  </div>
+
+  <div class="item" data-id="boots"
+       data-name="STORM BOOTS"
+       data-price="250"
+       data-speed="10">
+    👟 STORM BOOTS<br>
+    +10 Speed<br>
+    250 Gold
+  </div>
+
+  <small>Items can be bought repeatedly.</small>
+</div>
+
+<div id="inventory"></div>
+
+<div id="controls">
+  <div id="joystick">
+    <div id="stick"></div>
+  </div>
+</div>
+
+<div id="buttons">
+  <button id="attack">ATK</button>
+  <button id="skill1">S1</button>
+  <button id="skill2">S2</button>
+  <button id="ult">ULT</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+
+<script>
+let socket;
+let myId = null;
+let myPlayer = null;
+let players = {};
+let meshes = {};
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x07101c);
+
+const camera = new THREE.PerspectiveCamera(
+  60,
+  innerWidth / innerHeight,
+  0.1,
+  500
+);
+
+camera.position.set(0,45,35);
+camera.lookAt(0,0,0);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias:true
+});
+
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+
+document.getElementById("game").appendChild(renderer.domElement);
+
+// LIGHTS
+
+scene.add(new THREE.HemisphereLight(
+  0x9fc7ff,
+  0x101515,
+  2
+));
+
+const sun = new THREE.DirectionalLight(
+  0xffffff,
+  2
+);
+
+sun.position.set(20,50,20);
+scene.add(sun);
+
+// MAP
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(120,80),
+  new THREE.MeshStandardMaterial({
+    color:0x1c6b43,
+    roughness:1
+  })
+);
+
+ground.rotation.x=-Math.PI/2;
+scene.add(ground);
+
+// RIVER
+
+const river = new THREE.Mesh(
+  new THREE.PlaneGeometry(120,12),
+  new THREE.MeshStandardMaterial({
+    color:0x1b75a8,
+    transparent:true,
+    opacity:.8
+  })
+);
+
+river.rotation.x=-Math.PI/2;
+river.position.y=.02;
+scene.add(river);
+
+// LANES
+
+function lane(x,z,rot){
+
+  const road = new THREE.Mesh(
+    new THREE.PlaneGeometry(100,6),
+    new THREE.MeshStandardMaterial({
+      color:0x6b5840
+    })
+  );
+
+  road.rotation.x=-Math.PI/2;
+  road.rotation.z=rot;
+  road.position.set(x,.04,z);
+
+  scene.add(road);
+}
+
+lane(0,-25,0);
+lane(0,0,0);
+lane(0,25,0);
+
+// TREES
+
+function tree(x,z){
+
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(.7,.9,4,8),
+    new THREE.MeshStandardMaterial({
+      color:0x543621
+    })
+  );
+
+  trunk.position.set(x,2,z);
+
+  const crown = new THREE.Mesh(
+    new THREE.SphereGeometry(3,12,12),
+    new THREE.MeshStandardMaterial({
+      color:0x174d2d
+    })
+  );
+
+  crown.position.set(x,5,z);
+
+  scene.add(trunk);
+  scene.add(crown);
+}
+
+for(let i=0;i<35;i++){
+
+  let x=(Math.random()*100)-50;
+  let z=(Math.random()*70)-35;
+
+  if(Math.abs(z)<8) continue;
+
+  tree(x,z);
+}
+
+// BASES
+
+function base(x,color){
+
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(7,9,5,16),
+    new THREE.MeshStandardMaterial({
+      color
+    })
+  );
+
+  mesh.position.set(x,2.5,0);
+
+  scene.add(mesh);
+}
+
+base(-50,0x2563ff);
+base(50,0xff2635);
+
+// HERO
+
+function createHero(color){
+
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.1,1.3,2.8,12),
+    new THREE.MeshStandardMaterial({
+      color,
+      metalness:.4,
+      roughness:.4
+    })
+  );
+
+  body.position.y=2;
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(1,16,16),
+    new THREE.MeshStandardMaterial({
+      color:0xffc69b
+    })
+  );
+
+  head.position.y=4;
+
+  const weapon = new THREE.Mesh(
+    new THREE.BoxGeometry(.25,.25,3),
+    new THREE.MeshStandardMaterial({
+      color:0xbfd8ff,
+      metalness:.8
+    })
+  );
+
+  weapon.position.set(1.5,2.5,0);
+  weapon.rotation.z=.4;
+
+  const aura = new THREE.Mesh(
+    new THREE.TorusGeometry(1.8,.08,8,32),
+    new THREE.MeshBasicMaterial({
+      color
+    })
+  );
+
+  aura.rotation.x=Math.PI/2;
+  aura.position.y=.2;
+
+  group.add(body);
+  group.add(head);
+  group.add(weapon);
+  group.add(aura);
+
+  return group;
+}
+
+// NETWORK
+
+function connect(){
+
+  const protocol =
+    location.protocol === "https:" ? "wss" : "ws";
+
+  const host =
+    location.hostname || "localhost";
+
+  socket = new WebSocket(
+    `${protocol}://${host}:3000`
+  );
+
+  socket.onopen=()=>{
+
+    document.getElementById("status").textContent =
+      "Connected! Joining...";
+
+    socket.send(JSON.stringify({
+      type:"join",
+      name:document.getElementById("name").value || "Player",
+      room:document.getElementById("room").value || "VYRA1"
+    }));
+  };
+
+  socket.onmessage=e=>{
+
+    const data=JSON.parse(e.data);
+
+    if(data.type==="joined"){
+
+      myId=data.id;
+
+      document.getElementById("join").style.display="none";
+    }
+
+    if(data.type==="state"){
+
+      players={};
+
+      data.players.forEach(p=>{
+        players[p.id]=p;
+      });
+
+      myPlayer=players[myId];
+
+      renderPlayers();
+      updateUI();
+    }
+
+    if(data.type==="chat"){
+      console.log(
+        `[${data.name}] ${data.message}`
+      );
+    }
+
+    if(data.type==="error"){
+      document.getElementById("status").textContent =
+        data.message;
+    }
+  };
+
+  socket.onclose=()=>{
+
+    document.getElementById("join").style.display="flex";
+
+    document.getElementById("status").textContent =
+      "Disconnected from server.";
   };
 }
 
-function send(ws, data) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(data));
+function renderPlayers(){
+
+  for(const id in meshes){
+
+    if(!players[id]){
+
+      scene.remove(meshes[id]);
+      delete meshes[id];
+    }
+  }
+
+  for(const id in players){
+
+    const p=players[id];
+
+    if(!meshes[id]){
+
+      const color =
+        p.team==="blue"
+        ? 0x3b82ff
+        : 0xff3045;
+
+      meshes[id]=createHero(color);
+
+      scene.add(meshes[id]);
+    }
+
+    meshes[id].position.x=p.x;
+    meshes[id].position.z=p.z;
   }
 }
 
-function broadcast(room, data) {
-  for (const player of room.players.values()) {
-    send(player.ws, data);
-  }
-}
+function updateUI(){
 
-function snapshot(room) {
-  return [...room.players.values()].map(p => ({
-    id: p.id,
-    name: p.name,
-    team: p.team,
-    x: p.x,
-    z: p.z,
-    hp: p.hp,
-    maxHp: p.maxHp,
-    gold: p.gold,
-    level: p.level,
-    items: p.items
-  }));
-}
+  if(!myPlayer) return;
 
-function updateRoom(room) {
-  broadcast(room, {
-    type: "state",
-    players: snapshot(room)
+  document.getElementById("stats").textContent =
+    `Gold: ${myPlayer.gold} | ` +
+    `Level: ${myPlayer.level} | ` +
+    `HP: ${myPlayer.hp}/${myPlayer.maxHp} | ` +
+    `Players: ${Object.keys(players).length}/10`;
+
+  const inv=document.getElementById("inventory");
+
+  inv.innerHTML="";
+
+  myPlayer.items.forEach((item,i)=>{
+
+    const slot=document.createElement("div");
+
+    slot.className="slot";
+
+    slot.innerHTML =
+      `${item.name}<br>` +
+      `<small>SELL</small>`;
+
+    slot.onclick=()=>{
+
+      socket.send(JSON.stringify({
+        type:"sell",
+        index:i
+      }));
+    };
+
+    inv.appendChild(slot);
   });
 }
 
-wss.on("connection", ws => {
-  let me = null;
-  let room = null;
+// SHOP
 
-  ws.on("message", raw => {
-    let msg;
+document.querySelectorAll(".item").forEach(el=>{
 
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
-    }
+  el.onclick=()=>{
 
-    // JOIN ROOM
-    if (msg.type === "join") {
-      const code = String(msg.room || "VYRA1").toUpperCase();
+    if(!socket || socket.readyState!==1) return;
 
-      if (!rooms.has(code)) {
-        rooms.set(code, makeRoom(code));
-      }
+    socket.send(JSON.stringify({
+      type:"buy",
 
-      room = rooms.get(code);
+      id:el.dataset.id,
+      name:el.dataset.name,
 
-      if (room.players.size >= 10) {
-        send(ws, {
-          type: "error",
-          message: "Room is full."
-        });
-        return;
-      }
+      price:Number(el.dataset.price),
 
-      const blue = [...room.players.values()]
-        .filter(p => p.team === "blue").length;
-
-      const red = [...room.players.values()]
-        .filter(p => p.team === "red").length;
-
-      const team = blue <= red ? "blue" : "red";
-
-      me = {
-        id: Math.random().toString(36).slice(2),
-        name: String(msg.name || "Player").slice(0, 16),
-        team,
-        x: team === "blue" ? -25 : 25,
-        z: 0,
-        hp: 1000,
-        maxHp: 1000,
-        gold: 1000,
-        level: 1,
-        items: [],
-        ws
-      };
-
-      room.players.set(me.id, me);
-
-      send(ws, {
-        type: "joined",
-        id: me.id,
-        team: me.team,
-        room: code
-      });
-
-      updateRoom(room);
-      return;
-    }
-
-    if (!me || !room) return;
-
-    // MOVEMENT
-    if (msg.type === "move") {
-      const x = Number(msg.x);
-      const z = Number(msg.z);
-
-      if (Number.isFinite(x) && Number.isFinite(z)) {
-        me.x = Math.max(-55, Math.min(55, x));
-        me.z = Math.max(-35, Math.min(35, z));
-        updateRoom(room);
-      }
-    }
-
-    // ATTACK
-    if (msg.type === "attack") {
-      const target = room.players.get(String(msg.target));
-
-      if (!target) return;
-      if (target.team === me.team) return;
-
-      const dx = target.x - me.x;
-      const dz = target.z - me.z;
-      const distance = Math.sqrt(dx * dx + dz * dz);
-
-      if (distance <= 5) {
-        target.hp -= 100;
-
-        if (target.hp <= 0) {
-          target.hp = 0;
-
-          me.gold += 300;
-          me.level += 1;
-
-          setTimeout(() => {
-            if (!room || !room.players.has(target.id)) return;
-
-            target.hp = target.maxHp;
-            target.x = target.team === "blue" ? -25 : 25;
-            target.z = 0;
-          }, 3000);
-        }
-
-        updateRoom(room);
-      }
-    }
-
-    // BUY ITEM
-    if (msg.type === "buy") {
-      const item = {
-        id: String(msg.id),
-        name: String(msg.name),
-        price: Number(msg.price),
-        damage: Number(msg.damage || 0),
-        defense: Number(msg.defense || 0),
-        speed: Number(msg.speed || 0)
-      };
-
-      if (!Number.isFinite(item.price)) return;
-
-      if (me.gold >= item.price) {
-        me.gold -= item.price;
-
-        // Rebuying is allowed.
-        me.items.push(item);
-
-        // Item stats
-        me.maxHp += item.defense * 5;
-        me.hp += item.defense * 5;
-
-        updateRoom(room);
-      }
-    }
-
-    // SELL ITEM
-    if (msg.type === "sell") {
-      const index = Number(msg.index);
-
-      if (
-        Number.isInteger(index) &&
-        index >= 0 &&
-        index < me.items.length
-      ) {
-        const item = me.items[index];
-
-        me.gold += Math.floor(item.price * 0.7);
-
-        me.items.splice(index, 1);
-
-        updateRoom(room);
-      }
-    }
-
-    // CHAT
-    if (msg.type === "chat") {
-      broadcast(room, {
-        type: "chat",
-        name: me.name,
-        message: String(msg.message || "").slice(0, 120)
-      });
-    }
-  });
-
-  ws.on("close", () => {
-    if (!me || !room) return;
-
-    room.players.delete(me.id);
-
-    updateRoom(room);
-
-    if (room.players.size === 0) {
-      rooms.delete(
-        [...rooms.entries()].find(([_, r]) => r === room)?.[0]
-      );
-    }
-  });
+      damage:Number(el.dataset.damage||0),
+      defense:Number(el.dataset.defense||0),
+      speed:Number(el.dataset.speed||0)
+    }));
+  };
 });
 
-console.log(`VYRA multiplayer server running on port ${PORT}`);
+// ATTACK
+
+document.getElementById("attack").onclick=()=>{
+
+  if(!myPlayer) return;
+
+  let nearest=null;
+  let best=Infinity;
+
+  for(const id in players){
+
+    const p=players[id];
+
+    if(p.team===myPlayer.team) continue;
+
+    const dx=p.x-myPlayer.x;
+    const dz=p.z-myPlayer.z;
+
+    const d=Math.sqrt(dx*dx+dz*dz);
+
+    if(d<best){
+
+      best=d;
+      nearest=id;
+    }
+  }
+
+  if(nearest && best<=6){
+
+    socket.send(JSON.stringify({
+      type:"attack",
+      target:nearest
+    }));
+  }
+};
+
+// SKILLS
+
+document.getElementById("skill1").onclick=()=>{
+  console.log("Skill 1");
+};
+
+document.getElementById("skill2").onclick=()=>{
+  console.log("Skill 2");
+};
+
+document.getElementById("ult").onclick=()=>{
+  console.log("ULTIMATE");
+};
+
+// KEYBOARD
+
+const keys={};
+
+addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()]=true;
+});
+
+addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+let lastSend=0;
+
+function controls(){
+
+  if(!myPlayer) return;
+
+  let dx=0;
+  let dz=0;
+
+  if(keys.w) dz-=1;
+  if(keys.s) dz+=1;
+  if(keys.a) dx-=1;
+  if(keys.d) dx+=1;
+
+  if(dx===0 && dz===0) return;
+
+  const len=Math.sqrt(dx*dx+dz*dz);
+
+  dx/=len;
+  dz/=len;
+
+  const speed=.25;
+
+  myPlayer.x+=dx*speed;
+  myPlayer.z+=dz*speed;
+
+  if(Date.now()-lastSend>50){
+
+    lastSend=Date.now();
+
+    socket.send(JSON.stringify({
+      type:"move",
+      x:myPlayer.x,
+      z:myPlayer.z
+    }));
+  }
+}
+
+// JOIN
+
+document.getElementById("joinBtn").onclick=()=>{
+
+  document.getElementById("status").textContent =
+    "Connecting...";
+
+  connect();
+};
+
+// LOOP
+
+function animate(){
+
+  requestAnimationFrame(animate);
+
+  controls();
+
+  if(myPlayer && meshes[myId]){
+
+    const hero=meshes[myId];
+
+    camera.position.x +=
+      (hero.position.x-camera.position.x)*.08;
+
+    camera.position.z +=
+      (hero.position.z+35-camera.position.z)*.08;
+
+    camera.lookAt(
+      hero.position.x,
+      0,
+      hero.position.z
+    );
+  }
+
+  renderer.render(scene,camera);
+}
+
+animate();
+
+addEventListener("resize",()=>{
+
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+
+  renderer.setSize(
+    innerWidth,
+    innerHeight
+  );
+});
+</script>
+
+</body>
+</html>
